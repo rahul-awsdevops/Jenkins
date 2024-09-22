@@ -1,0 +1,1 @@
+dynamic solution for deploying any DDL (Data Definition Language) or DML (Data Manipulation Language) SQL files to Amazon RDS PostgreSQL using Python, Jenkins, and AWS Secrets Manager for fetching the database credentials. This solution will also use Jenkins job parameters to fetch the SQL script from a GitHub repository.
