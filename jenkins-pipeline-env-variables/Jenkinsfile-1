@@ -1,0 +1,14 @@
+pipeline {
+  agent any
+  environment {
+    DEPLOY_ENV = 'staging'
+  }
+  stages {
+    stage('stage 1') {
+      steps {
+        sh 'echo $DEPLOY_ENV'
+        sh 'env | sort'
+      }
+    }
+  }
+}
