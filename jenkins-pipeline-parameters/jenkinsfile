@@ -22,7 +22,7 @@ pipeline {
         stage('Perform EC2 Action') {
             steps {
                 sh """
-                    aws ec2 ${params.action}-instances --instance-ids ${params.instance_id} --region ${AWS_REGION}
+                    aws ec2 ${params.action}-instances --instance-ids ${params.instance_id}
                 """
             }
         }
