@@ -1,0 +1,29 @@
+pipeline {
+    agent any
+       parameters {
+         choice choices: ['start', 'reboot', 'stop', 'terminate'], description: 'select from drop down what type of action you want to perform', name: 'action'
+         string description: 'enter the ec2 instance id ', name: 'instance_id', trim: true
+}
+    stages {
+        stage('Validate Parameters') {
+            steps {
+                sh '''
+                if [ -z "$instance_id" ]; then
+                    echo "ERROR: EC2 Instance ID cannot be empty!"
+                    exit 1
+                fi
+                echo "Action: $action | Instance ID: $instance_id"
+                '''
+            }
+        }
+        stage('Perform EC2 Action') {
+            steps {
+                
+                    sh """
+                        aws ec2 ${params.action}-instances --instance-ids ${params.instance_id}
+                    """
+                
+            }
+        }
+    }
+}
