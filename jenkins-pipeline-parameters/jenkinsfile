@@ -5,7 +5,7 @@ pipeline {
         string description: 'enter the ec2 instance id ', name: 'instance_id', trim: true
     }
     environment {
-        SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:676206914267:sns-topic'  // Replace with your SNS Topic ARN
+        SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:12345678901:sns-topic'  // Replace with your SNS Topic ARN
     }
     stages {
         stage('Validate Parameters') {
