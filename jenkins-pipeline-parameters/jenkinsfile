@@ -1,9 +1,12 @@
 pipeline {
     agent any
-       parameters {
-         choice choices: ['start', 'reboot', 'stop', 'terminate'], description: 'select from drop down what type of action you want to perform', name: 'action'
-         string description: 'enter the ec2 instance id ', name: 'instance_id', trim: true
-}
+    parameters {
+        choice choices: ['start', 'reboot', 'stop', 'terminate'], description: 'select from drop down what type of action you want to perform', name: 'action'
+        string description: 'enter the ec2 instance id ', name: 'instance_id', trim: true
+    }
+    environment {
+        SNS_TOPIC_ARN = 'arn:aws:sns:us-east-1:676206914267:sns-topic'  // Replace with your SNS Topic ARN
+    }
     stages {
         stage('Validate Parameters') {
             steps {
@@ -18,12 +21,27 @@ pipeline {
         }
         stage('Perform EC2 Action') {
             steps {
-                
-                    sh """
-                        aws ec2 ${params.action}-instances --instance-ids ${params.instance_id}
-                    """
-                
+                sh """
+                    aws ec2 ${params.action}-instances --instance-ids ${params.instance_id} --region ${AWS_REGION}
+                """
             }
+        }
+    }
+    post {
+        success {
+            sh '''
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "✅ Jenkins Pipeline Succeeded!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n🚀 Status: Success" --region "$AWS_REGION"
+            '''
+        }
+        failure {
+            sh '''
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "❌ Jenkins Pipeline Failed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n⚠️ Status: Failed" --region "$AWS_REGION"
+            '''
+        }
+        always {
+            sh '''
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "ℹ️ Jenkins Pipeline Completed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n📅 Timestamp: $(date)" --region "$AWS_REGION"
+            '''
         }
     }
 }
