@@ -1,0 +1,15 @@
+pipeline {
+    agent any
+    environment {
+        GITHUB_TOKEN = credentials('github_private_repo')
+    }
+    stages {
+        stage('Clone Repo') {
+            steps {
+                sh 'git clone https://${GITHUB_TOKEN}@github.com/your-username/your-private-repo.git'
+                sh 'ls -lrt'
+              
+            }
+        }
+    }
+}
