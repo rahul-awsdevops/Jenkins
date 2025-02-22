@@ -30,17 +30,17 @@ pipeline {
     post {
         success {
             sh '''
-            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "✅ Jenkins Pipeline Succeeded!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n🚀 Status: Success" --region "$AWS_REGION"
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "✅ Jenkins Pipeline Succeeded!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n🚀 Status: Success"
             '''
         }
         failure {
             sh '''
-            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "❌ Jenkins Pipeline Failed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n⚠️ Status: Failed" --region "$AWS_REGION"
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "❌ Jenkins Pipeline Failed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n⚠️ Status: Failed" 
             '''
         }
         always {
             sh '''
-            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "ℹ️ Jenkins Pipeline Completed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n📅 Timestamp: $(date)" --region "$AWS_REGION"
+            aws sns publish --topic-arn "$SNS_TOPIC_ARN" --message "ℹ️ Jenkins Pipeline Completed!\n🎯 EC2 Action: $action\n🔹 Instance ID: $instance_id\n📅 Timestamp: $(date)"
             '''
         }
     }
