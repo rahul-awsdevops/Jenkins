@@ -1,0 +1,56 @@
+pipeline {
+    agent any
+
+        options {
+        timeout(time: 20, unit: 'MINUTES')  // Cancel build if it exceeds 20 min
+        timestamps()  // Add timestamps to logs
+        buildDiscarder(logRotator(numToKeepStr: '5'))  // Keep last 5 builds
+    }
+
+    // Triggers: Git Polling & Scheduled Execution
+    triggers {
+        pollSCM('* * * * *')  // Check for Git changes every 10 minutes
+    }
+
+    parameters {
+        string(name: 'STACK_NAME', defaultValue: 's3-bucket-stack', description: 'CloudFormation Stack Name')
+        string(name: 'BUCKET_NAME', defaultValue: 'my-secure-bucket', description: 'S3 Bucket Name')
+        string(name: 'AWS_REGION', defaultValue: 'us-east-1', description: 'AWS Region')
+        choice(name: 'ENABLE_VERSIONING', choices: ['Enabled', 'Suspended'], description: 'Enable or Disable Versioning')
+        string(name: 'KMS_KEY_ID', defaultValue: '', description: 'KMS Key ID (Leave empty for default S3 encryption)')
+    }
+
+    stages {
+        stage('Deploy CloudFormation Stack') {
+            steps {
+                script {
+                    sh """
+                    echo "Deploying CloudFormation Stack: ${STACK_NAME}"
+
+                    aws cloudformation deploy \
+                        --template-file s3_bucket.yaml \
+                        --stack-name ${STACK_NAME} \
+                        --region ${AWS_REGION} \
+                        --parameter-overrides \
+                            BucketName=${BUCKET_NAME} \
+                            Region=${AWS_REGION} \
+                            EnableVersioning=${ENABLE_VERSIONING} \
+                            KmsKeyId=${KMS_KEY_ID} \
+                        --capabilities CAPABILITY_NAMED_IAM
+
+                    echo "CloudFormation Stack Deployment Completed"
+                    """
+                }
+            }
+        }
+    }
+
+    post {
+        success {
+            echo "S3 Bucket Created Successfully!"
+        }
+        failure {
+            echo "CloudFormation Deployment Failed!"
+        }
+    }
+}

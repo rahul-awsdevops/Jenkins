@@ -1,0 +1,41 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: "CloudFormation Template to Create an S3 Bucket with Versioning and KMS Encryption"
+
+Parameters:
+  BucketName:
+    Type: String
+    Description: "Name of the S3 Bucket"
+  
+  Region:
+    Type: String
+    Description: "AWS Region for the S3 Bucket"
+  
+  EnableVersioning:
+    Type: String
+    AllowedValues: ["Enabled", "Suspended"]
+    Default: "Enabled"
+    Description: "Enable or Disable Versioning (Allowed: Enabled, Suspended)"
+  
+  KmsKeyId:
+    Type: String
+    Default: ""
+    Description: "KMS Key ID for encryption (leave empty for default S3 encryption)"
+
+Resources:
+  S3Bucket:
+    Type: "AWS::S3::Bucket"
+    Properties:
+      BucketName: !Ref BucketName
+      VersioningConfiguration:
+        Status: !Ref EnableVersioning
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: "aws:kms"
+              KMSMasterKeyID: !Ref KmsKeyId
+            BucketKeyEnabled: true
+
+Outputs:
+  BucketArn:
+    Description: "ARN of the created S3 bucket"
+    Value: !GetAtt S3Bucket.Arn
