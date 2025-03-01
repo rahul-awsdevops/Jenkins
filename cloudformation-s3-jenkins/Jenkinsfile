@@ -28,7 +28,7 @@ pipeline {
                     echo "Deploying CloudFormation Stack: ${STACK_NAME}"
 
                     aws cloudformation deploy \
-                        --template-file s3_bucket.yaml \
+                        --template-file ${WORKSPACE}/s3_bucket.yaml \
                         --stack-name ${STACK_NAME} \
                         --region ${AWS_REGION} \
                         --parameter-overrides \
