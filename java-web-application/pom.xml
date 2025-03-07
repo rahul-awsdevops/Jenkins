@@ -1,0 +1,15 @@
+<properties>
+    <sonar.projectKey>java-web-application</sonar.projectKey>
+    <sonar.host.url>http://54.92.193.100/:9000</sonar.host.url>
+</properties>
+
+<build>
+    <plugins>
+        <plugin>
+            <groupId>org.sonarsource.scanner.maven</groupId>
+            <artifactId>sonar-maven-plugin</artifactId>
+            <version>3.9.1.2184</version>
+        </plugin>
+    </plugins>
+</build>
+
