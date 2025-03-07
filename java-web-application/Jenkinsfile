@@ -1,21 +1,25 @@
 pipeline {
     agent any
 
-        tools {
-        maven 'Maven'  // This should match the name set in "Global Tool Configuration"
+    tools {
+        maven 'Maven'  // This should match the Maven name set in "Global Tool Configuration"
     }
 
     stages {
         stage('Build') {
             steps {
-                sh 'mvn clean package'
+                dir('java-web-application') {  // Change to correct directory
+                    sh 'mvn clean package'
+                }
             }
         }
 
         stage('SonarQube Analysis') {
             steps {
-                withSonarQubeEnv('SonarQube') {  // Uses configured SonarQube instance
-                    sh 'mvn sonar:sonar'
+                dir('java-web-application') {  // Ensure SonarQube runs in correct directory
+                    withSonarQubeEnv('SonarQube') {
+                        sh 'mvn sonar:sonar'
+                    }
                 }
             }
         }
