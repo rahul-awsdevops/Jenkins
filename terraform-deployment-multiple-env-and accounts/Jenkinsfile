@@ -1,0 +1,111 @@
+pipeline {
+    agent any
+
+    environment {
+        S3_STATE_FILE_BUCKET = "techops-terraform-state-file"
+        AWS_REGION = "us-east-1"  // Change to your preferred AWS region
+    }
+
+    parameters {
+        choice(name: 'BRANCH', choices: ['develop', 'master'], description: 'Select the branch to deploy from')
+        string(name: 'REPO_NAME', defaultValue: 'terraform-deployment-multiple-account-jenkins', description: 'Enter the repository name')
+        choice(name: 'ENV', choices: ['dev', 'tst', 'qa', 'prod'], description: 'Select the environment to deploy to')
+    }
+
+    stages {
+        stage('Validate Parameters') {
+            steps {
+                script {
+                    if (params.BRANCH == 'develop' && !(params.ENV in ['dev', 'tst'])) {
+                        error("Invalid ENV selected for BRANCH 'develop'. Allowed values: dev, tst.")
+                    }
+                    if (params.BRANCH == 'master' && !(params.ENV in ['qa', 'prod'])) {
+                        error("Invalid ENV selected for BRANCH 'master'. Allowed values: qa, prod.")
+                    }
+                }
+            }
+        }
+
+        stage('Checkout Code') {
+            steps {
+                script {
+                    def repoUrl = "https://github.com/rahul-awsdevops/${params.REPO_NAME}.git"
+                    echo "Checking out repository: ${repoUrl} on branch: ${params.BRANCH}"
+                    git branch: params.BRANCH, url: repoUrl
+                }
+            }
+        }
+
+        stage('Terraform Init') {
+            steps {
+                script {
+                    echo "Initializing Terraform for environment: ${params.ENV}"
+                    sh """
+                    export AWS_REGION="${AWS_REGION}"  
+                    terraform init -force-copy \
+                        -backend-config="bucket=${S3_STATE_FILE_BUCKET}" \
+                        -backend-config="key=${params.REPO_NAME}/${params.ENV}/terraform.tfstate" \
+                        -backend-config="region=${AWS_REGION}" \
+                        -no-color
+                    terraform get -update -no-color
+                    """
+                }
+            }
+        }
+
+        stage('Terraform Validate') {
+            steps {
+                script {
+                    echo "Validating Terraform configuration for environment: ${params.ENV}"
+                    sh "terraform validate -no-color"
+                }
+            }
+        }
+
+        stage('Terraform Plan') {
+            steps {
+                script {
+                    echo "Planning Terraform for environment: ${params.ENV}"
+                    sh "terraform plan -var-file=${params.ENV}.tfvars --out=${WORKSPACE}/latestplan.json -no-color"
+                }
+            }
+        }
+
+        stage('Backup Terraform Plan to S3') {
+            steps {
+                script {
+                    echo "Uploading Terraform plan to S3 for backup..."
+                    sh """
+                    aws s3 cp ${WORKSPACE}/latestplan.json s3://${S3_STATE_FILE_BUCKET}/${params.REPO_NAME}/${params.ENV}/latestplan.json --region ${AWS_REGION}
+                    """
+                }
+            }
+        }
+
+        stage('Manual Approval') {
+            steps {
+                script {
+                    def userInput = input(
+                        message: "Do you want to proceed with Terraform Apply?",
+                        parameters: [
+                            choice(name: 'APPROVE', choices: ['no', 'yes'], description: 'Select yes to apply Terraform changes')
+                        ]
+                    )
+
+                    if (userInput == 'no') {
+                        error("Terraform apply was not approved. Stopping pipeline.")
+                    }
+                }
+            }
+        }
+
+        stage('Terraform Apply') {
+            steps {
+                script {
+                    echo "Applying Terraform changes for environment: ${params.ENV}"
+                    sh "terraform apply -auto-approve ${WORKSPACE}/latestplan.json -no-color"
+                }
+            }
+        }
+    }
+}
