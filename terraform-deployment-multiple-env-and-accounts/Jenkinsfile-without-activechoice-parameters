@@ -1,9 +1,12 @@
 pipeline {
-    agent any
+    agent {
+        label 'ecs-fargate-agent' // Use the ECS agent with the label
+    }
 
     environment {
         S3_STATE_FILE_BUCKET = "techops-terraform-state-file"
-        AWS_REGION = "us-east-1"  // Change to your preferred AWS region
+        AWS_REGION = "us-east-1"
+        ASSUME_ROLE_ARN = "arn:aws:iam::676206914267:role/jenkins-assume-role"
     }
 
     parameters {
@@ -26,6 +29,42 @@ pipeline {
             }
         }
 
+        stage('Assume AWS Role') {
+            steps {
+                script {
+                    echo "Assuming AWS IAM Role: ${ASSUME_ROLE_ARN}"
+
+                    sh '''
+                    echo "Fetching temporary AWS credentials..."
+                    
+                    # Ensure AWS credentials exist before assuming role
+                    if ! aws sts get-caller-identity > /dev/null 2>&1; then
+                        echo "Error: No valid AWS credentials found. Ensure the Jenkins agent has IAM credentials."
+                        exit 1
+                    fi
+
+                    # Assume the role
+                    CREDENTIALS=$(aws sts assume-role --role-arn "$ASSUME_ROLE_ARN" --role-session-name "JenkinsSession" --query 'Credentials' --output json)
+
+                    if [ -z "$CREDENTIALS" ]; then
+                        echo "Error: Failed to assume role"
+                        exit 1
+                    fi
+
+                    AWS_ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r '.AccessKeyId')
+                    AWS_SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r '.SecretAccessKey')
+                    AWS_SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r '.SessionToken')
+
+                    export AWS_ACCESS_KEY_ID
+                    export AWS_SECRET_ACCESS_KEY
+                    export AWS_SESSION_TOKEN
+
+                    echo "Successfully assumed role and set temporary AWS credentials."
+                    '''
+                }
+            }
+        }
+
         stage('Checkout Code') {
             steps {
                 script {
@@ -40,15 +79,14 @@ pipeline {
             steps {
                 script {
                     echo "Initializing Terraform for environment: ${params.ENV}"
-                    sh """
-                    export AWS_REGION="${AWS_REGION}"  
+                    sh '''
                     terraform init -force-copy \
                         -backend-config="bucket=${S3_STATE_FILE_BUCKET}" \
-                        -backend-config="key=${params.REPO_NAME}/${params.ENV}/terraform.tfstate" \
+                        -backend-config="key=${REPO_NAME}/${ENV}/terraform.tfstate" \
                         -backend-config="region=${AWS_REGION}" \
                         -no-color
                     terraform get -update -no-color
-                    """
+                    '''
                 }
             }
         }
@@ -75,29 +113,27 @@ pipeline {
             steps {
                 script {
                     echo "Uploading Terraform plan to S3 for backup..."
-                    sh """
-                    aws s3 cp ${WORKSPACE}/latestplan.json s3://${S3_STATE_FILE_BUCKET}/${params.REPO_NAME}/${params.ENV}/latestplan.json --region ${AWS_REGION}
-                    """
+                    sh '''
+                    aws s3 cp ${WORKSPACE}/latestplan.json s3://${S3_STATE_FILE_BUCKET}/${REPO_NAME}/${ENV}/latestplan.json --region ${AWS_REGION}
+                    '''
                 }
             }
         }
 
-        stage('Manual Approval') {
+stage('Manual Approval') {
             steps {
                 script {
-                    def userInput = input(
-                        message: "Do you want to proceed with Terraform Apply?",
+                    def userInput = input message: 'Do you want to proceed with Terraform Apply?',
                         parameters: [
-                            choice(name: 'APPROVE', choices: ['no', 'yes'], description: 'Select yes to apply Terraform changes')
+                            choice(name: 'APPROVE', choices: ['yes', 'no'], description: 'Select yes to apply Terraform changes')
                         ]
-                    )
-
-                    if (userInput == 'no') {
-                        error("Terraform apply was not approved. Stopping pipeline.")
+                    if (userInput != 'yes') {
+                        error("Terraform Apply was not approved. Pipeline aborted.")
                     }
                 }
             }
         }
+
 
         stage('Terraform Apply') {
             steps {

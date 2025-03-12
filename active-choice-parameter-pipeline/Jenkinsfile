@@ -1,0 +1,72 @@
+
+properties([
+    parameters([
+        [
+            $class: 'CascadeChoiceParameter',
+            choiceType: 'PT_SINGLE_SELECT',
+            filterLength: 1,
+            filterable: false,
+            name: 'BRANCH',
+            randomName: 'choice-parameter-685414044891',
+            script: [
+                $class: 'GroovyScript',
+                fallbackScript: [
+                    classpath: [],
+                    sandbox: true,
+                    script: ''
+                ],
+                script: [
+                    classpath: [],
+                    sandbox: true,
+                    script: 'return ["develop", "master"]'
+                ]
+            ]
+        ],
+        [
+            $class: 'CascadeChoiceParameter',
+            choiceType: 'PT_SINGLE_SELECT',
+            filterLength: 1,
+            filterable: false,
+            name: 'ENVIRONMENT',
+            randomName: 'choice-parameter-685431499494',
+            referencedParameters: 'BRANCH',
+            script: [
+                $class: 'GroovyScript',
+                fallbackScript: [
+                    classpath: [],
+                    sandbox: true,
+                    script: ''
+                ],
+                script: [
+                    classpath: [],
+                    sandbox: true,
+                    script: '''
+                        if (BRANCH.equals("develop")) {
+                            return ["Dev", "Tst"]
+                        } else if (BRANCH.equals("master")) {
+                            return ["QA", "Prod"]
+                        } else {
+                            return ["ERROR"]
+                        }
+                    '''
+                ]
+            ]
+        ]
+    ])
+])
+
+pipeline {
+    agent any
+
+    stages {
+        stage('parameter print') {
+            steps {
+                script {
+                    echo "Pipeline started with the following parameters:"
+                    echo "BRANCH: ${params.BRANCH}"
+                    echo "ENVIRONMENT: ${params.ENVIRONMENT}"
+                }
+            }
+        }
+    }
+}
