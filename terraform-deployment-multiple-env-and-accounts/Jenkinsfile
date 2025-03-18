@@ -7,7 +7,8 @@ pipeline {
     environment {
         S3_STATE_FILE_BUCKET = "techops-terraform-state-file"
         AWS_REGION = "us-east-1"
-        ASSUME_ROLE_ARN = "arn:aws:iam::676206914267:role/jenkins-assume-role"
+        ACCOUNT_A_ASSUME_ROLE = "arn:aws:iam::676206914267:role/jenkins-assume-role-new"
+        ACCOUNT_B_ASSUME_ROLE = "arn:aws:iam::676206914268:role/jenkins-assume-role-new"
     }
 
 parameters {
@@ -36,42 +37,53 @@ parameters {
                 }
             }
         }
-
-        stage('Assume AWS Role') {
+        stage('Select AWS Role') {
             steps {
                 script {
-                    echo "Assuming AWS IAM Role: ${ASSUME_ROLE_ARN}"
+                    echo "Selected Branch: ${params.BRANCH}"
+                    echo "Selected Environment: ${params.ENVIRONMENT}"
 
-                    sh '''
-                    echo "Fetching temporary AWS credentials..."
-                    
-                    # Ensure AWS credentials exist before assuming role
-                    if ! aws sts get-caller-identity > /dev/null 2>&1; then
-                        echo "Error: No valid AWS credentials found. Ensure the Jenkins agent has IAM credentials."
-                        exit 1
-                    fi
+                    if (params.BRANCH == "develop" && params.ENVIRONMENT in ["dev", "tst"]) {
+                        env.AWS_ASSUME_ROLE = env.ACCOUNT_A_ASSUME_ROLE
+                    } else if (params.BRANCH == "master" && params.ENVIRONMENT in ["qa", "prod"]) {
+                        env.AWS_ASSUME_ROLE = env.ACCOUNT_B_ASSUME_ROLE
+                    } else {
+                        error("Invalid environment selection for the branch!")
+                    }
 
-                    # Assume the role
-                    CREDENTIALS=$(aws sts assume-role --role-arn "$ASSUME_ROLE_ARN" --role-session-name "JenkinsSession" --query 'Credentials' --output json)
-
-                    if [ -z "$CREDENTIALS" ]; then
-                        echo "Error: Failed to assume role"
-                        exit 1
-                    fi
-
-                    AWS_ACCESS_KEY_ID=$(echo "$CREDENTIALS" | jq -r '.AccessKeyId')
-                    AWS_SECRET_ACCESS_KEY=$(echo "$CREDENTIALS" | jq -r '.SecretAccessKey')
-                    AWS_SESSION_TOKEN=$(echo "$CREDENTIALS" | jq -r '.SessionToken')
-
-                    export AWS_ACCESS_KEY_ID
-                    export AWS_SECRET_ACCESS_KEY
-                    export AWS_SESSION_TOKEN
-
-                    echo "Successfully assumed role and set temporary AWS credentials."
-                    '''
+                    // Debugging
+                    echo "AWS_ASSUME_ROLE after assignment: ${env.AWS_ASSUME_ROLE}"
                 }
             }
         }
+
+stage('Assume AWS Role') {
+    steps {
+        script {
+            echo "Assuming AWS IAM Role: ${env.AWS_ASSUME_ROLE}"
+
+            def credsJson = sh(
+                script: '''
+                aws sts assume-role --role-arn "${AWS_ASSUME_ROLE}" --role-session-name "JenkinsSession" --query 'Credentials' --output json
+                ''',
+                returnStdout: true
+            ).trim()
+
+            def creds = readJSON text: credsJson
+
+            // Injecting into environment for next stages
+            env.AWS_ACCESS_KEY_ID = creds.AccessKeyId
+            env.AWS_SECRET_ACCESS_KEY = creds.SecretAccessKey
+            env.AWS_SESSION_TOKEN = creds.SessionToken
+
+            echo "Successfully assumed role and exported AWS temporary credentials."
+        }
+    }
+}
+
+
+
+
 
         stage('Checkout Code') {
             steps {
@@ -83,34 +95,63 @@ parameters {
             }
         }
 
-        stage('Terraform Init') {
-            steps {
-                script {
-                    echo "Initializing Terraform for environment: ${params.ENVIRONMENT}"
-                    sh '''
-                    terraform init -force-copy \
-                        -backend-config="bucket=${S3_STATE_FILE_BUCKET}" \
-                        -backend-config="key=${REPO_NAME}/${ENVIRONMENT}/terraform.tfstate" \
-                        -backend-config="region=${AWS_REGION}" \
-                        -no-color
-                    terraform get -update -no-color
-                    '''
-                }
+stage('Terraform Init') {
+    steps {
+        withEnv([
+            "AWS_ACCESS_KEY_ID=${env.AWS_ACCESS_KEY_ID}",
+            "AWS_SECRET_ACCESS_KEY=${env.AWS_SECRET_ACCESS_KEY}",
+            "AWS_SESSION_TOKEN=${env.AWS_SESSION_TOKEN}"
+        ]) {
+            script {
+                echo "Initializing Terraform for environment: ${params.ENVIRONMENT}"
+                sh '''
+                terraform init -force-copy \
+                    -backend-config="bucket=${S3_STATE_FILE_BUCKET}" \
+                    -backend-config="key=${REPO_NAME}/${ENVIRONMENT}/terraform.tfstate" \
+                    -backend-config="region=${AWS_REGION}" \
+                    -no-color
+                terraform get -update -no-color
+                '''
             }
         }
+    }
+}
 
-        stage('Terraform Validate') {
+
+
+   stage('Terraform Validate') {
             steps {
-                script {
+                withEnv([
+                    "AWS_ACCESS_KEY_ID=${env.AWS_ACCESS_KEY_ID}",
+                    "AWS_SECRET_ACCESS_KEY=${env.AWS_SECRET_ACCESS_KEY}",
+                    "AWS_SESSION_TOKEN=${env.AWS_SESSION_TOKEN}"
+                ]) {
                     echo "Validating Terraform configuration for environment: ${params.ENVIRONMENT}"
                     sh "terraform validate -no-color"
                 }
             }
         }
+stage('Checkov Scan') {
+    steps {
+        catchError(buildResult: 'SUCCESS') {
+            script {
+                sh 'checkov --version'
+                sh 'checkov -d . --output junitxml --download-external-modules true'
+            }
+        }
+    }
+}
+
+
+
 
         stage('Terraform Plan') {
             steps {
-                script {
+                withEnv([
+                    "AWS_ACCESS_KEY_ID=${env.AWS_ACCESS_KEY_ID}",
+                    "AWS_SECRET_ACCESS_KEY=${env.AWS_SECRET_ACCESS_KEY}",
+                    "AWS_SESSION_TOKEN=${env.AWS_SESSION_TOKEN}"
+                ]) {
                     echo "Planning Terraform for environment: ${params.ENVIRONMENT}"
                     sh "terraform plan -var-file=${params.ENVIRONMENT}.tfvars --out=${WORKSPACE}/latestplan.json -no-color"
                 }
@@ -119,7 +160,11 @@ parameters {
 
         stage('Backup Terraform Plan to S3') {
             steps {
-                script {
+                withEnv([
+                    "AWS_ACCESS_KEY_ID=${env.AWS_ACCESS_KEY_ID}",
+                    "AWS_SECRET_ACCESS_KEY=${env.AWS_SECRET_ACCESS_KEY}",
+                    "AWS_SESSION_TOKEN=${env.AWS_SESSION_TOKEN}"
+                ]) {
                     echo "Uploading Terraform plan to S3 for backup..."
                     sh '''
                     aws s3 cp ${WORKSPACE}/latestplan.json s3://${S3_STATE_FILE_BUCKET}/${REPO_NAME}/${ENVIRONMENT}/latestplan.json --region ${AWS_REGION}
@@ -145,7 +190,11 @@ stage('Manual Approval') {
 
         stage('Terraform Apply') {
             steps {
-                script {
+                withEnv([
+                    "AWS_ACCESS_KEY_ID=${env.AWS_ACCESS_KEY_ID}",
+                    "AWS_SECRET_ACCESS_KEY=${env.AWS_SECRET_ACCESS_KEY}",
+                    "AWS_SESSION_TOKEN=${env.AWS_SESSION_TOKEN}"
+                ]) {
                     echo "Applying Terraform changes for environment: ${params.ENVIRONMENT}"
                     sh "terraform apply -auto-approve ${WORKSPACE}/latestplan.json -no-color"
                 }
